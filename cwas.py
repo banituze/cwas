@@ -771,3 +771,68 @@ class WaterSchedulerApp:
             print(f"Error fetching audit logs: {e}")
         input("Press Enter to continue...")
     
+    def financial_reports(self):
+        clear_screen()
+        print("\n=== FINANCIAL REPORTS ===")
+        try:
+            start_date = input("Start date (YYYY-MM-DD) [30 days ago]: ").strip()
+            end_date = input("End date (YYYY-MM-DD) [today]: ").strip()
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            # Revenue by date
+            cursor.execute('''
+                SELECT ts.slot_date, SUM(b.amount_charged) as revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                WHERE ts.slot_date BETWEEN ? AND ? AND b.booking_status = 'approved'
+                GROUP BY ts.slot_date ORDER BY ts.slot_date
+            ''', (start_date, end_date))
+            by_date = cursor.fetchall()
+            # Revenue by source
+            cursor.execute('''
+                SELECT ws.source_name, SUM(b.amount_charged) as revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE ts.slot_date BETWEEN ? AND ? AND b.booking_status = 'approved'
+                GROUP BY ws.source_id, ws.source_name
+                ORDER BY revenue DESC
+            ''', (start_date, end_date))
+            by_source = cursor.fetchall()
+            conn.close()
+            print(f"\nPeriod: {start_date} to {end_date}")
+            if by_date:
+                print("\n-- Revenue by Date --")
+                print(f"{'Date':<12} {'Revenue':<10}")
+                print("-" * 24)
+                for r in by_date:
+                    print(f"{r[0]:<12} ${r[1] or 0:.2f}")
+            if by_source:
+                print("\n-- Revenue by Source --")
+                print(f"{'Source':<20} {'Revenue':<10}")
+                print("-" * 32)
+                for r in by_source:
+                    print(f"{r[0]:<20} ${r[1] or 0:.2f}")
+        except Exception as e:
+            print(f"Error generating financial report: {e}")
+        input("Press Enter to continue...")
+    
+    def backup_database(self):
+        clear_screen()
+        print("\n=== BACKUP DATABASE ===")
+        try:
+            import shutil
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_dir = 'backups'
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            shutil.copy2(self.db.db_path, os.path.join(backup_dir, f"water_scheduler_{timestamp}.db"))
+            print("Backup completed.")
+        except Exception as e:
+            print(f"Backup failed: {e}")
+        input("Press Enter to continue...")
+    
