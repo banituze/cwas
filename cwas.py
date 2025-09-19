@@ -1157,3 +1157,80 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def add_funds(self):
+        """Add funds to account"""
+        clear_screen()
+        print("\n=== ADD FUNDS TO ACCOUNT ===")
+        
+        current_balance = self.get_household_balance()
+        print(f"Current balance: ${current_balance:.2f}")
+        
+        try:
+            amount = float(input("Enter amount to add: $"))
+            if amount <= 0:
+                print("Amount must be positive.")
+                input("Press Enter to continue...")
+                return
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE households SET balance = balance + ? WHERE household_id = ?
+            ''', (amount, self.current_user['household_id']))
+            
+            conn.commit()
+            conn.close()
+            
+            new_balance = self.get_household_balance()
+            print(f"Funds added successfully!")
+            print(f"New balance: ${new_balance:.2f}")
+            
+        except ValueError:
+            print("Invalid amount.")
+        except Exception as e:
+            print(f"Error adding funds: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def view_notifications(self):
+        """View notifications"""
+        clear_screen()
+        print("\n=== NOTIFICATIONS ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT title, message, notification_type, created_date, is_read
+                FROM notifications 
+                WHERE user_id = ?
+                ORDER BY created_date DESC
+                LIMIT 10
+            ''', (self.current_user['user_id'],))
+            
+            notifications = cursor.fetchall()
+            
+            if notifications:
+                for i, notif in enumerate(notifications, 1):
+                    status = "READ" if notif[4] else "NEW"
+                    date = notif[3][:16] if notif[3] else "N/A"
+                    print(f"{i}. [{status}] {notif[0]} - {date}")
+                    print(f"   {notif[1]}")
+                    print(f"   Type: {notif[2]}\n")
+                
+                # Mark as read
+                cursor.execute("UPDATE notifications SET is_read = 1 WHERE user_id = ?",
+                              (self.current_user['user_id'],))
+                conn.commit()
+            else:
+                print("No notifications found.")
+            
+            conn.close()
+            
+        except Exception as e:
+            print(f"Error viewing notifications: {e}")
+        
+        input("Press Enter to continue...")
+    
