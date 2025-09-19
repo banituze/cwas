@@ -16,3 +16,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+def clear_screen():
+    """Clear terminal screen for better UX"""
+    os.system('cls' if os.name == 'nt' else 'clear')
+
