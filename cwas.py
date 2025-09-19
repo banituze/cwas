@@ -643,3 +643,131 @@ class WaterSchedulerApp:
                 print("Invalid choice.")
                 input("Press Enter to continue...")
     
+    def system_reports(self):
+        clear_screen()
+        print("\n=== SYSTEM REPORTS ===")
+        self.generate_reports()
+    
+    def database_management(self):
+        while True:
+            clear_screen()
+            print("\n=== DATABASE MANAGEMENT ===")
+            print("1. VACUUM")
+            print("2. Integrity Check")
+            print("3. REINDEX")
+            print("4. Back")
+            choice = input("\nEnter choice (1-4): ").strip()
+            try:
+                if choice == '1':
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("VACUUM")
+                    conn.commit()
+                    conn.close()
+                    print("VACUUM completed.")
+                elif choice == '2':
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA integrity_check;")
+                    result = cursor.fetchone()
+                    conn.close()
+                    print(f"Integrity check: {result[0]}")
+                elif choice == '3':
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("REINDEX")
+                    conn.commit()
+                    conn.close()
+                    print("REINDEX completed.")
+                elif choice == '4':
+                    return
+                else:
+                    print("Invalid choice.")
+            except Exception as e:
+                print(f"Database operation failed: {e}")
+            input("Press Enter to continue...")
+    
+    def export_all_data(self):
+        # Quick path to export all common datasets
+        try:
+            self.export_bookings()
+            self.export_households()
+            self.export_financial()
+            self.export_usage_stats()
+        except Exception as e:
+            print(f"Export-all failed: {e}")
+        input("Press Enter to continue...")
+    
+    def system_settings(self):
+        while True:
+            clear_screen()
+            print("\n=== SYSTEM SETTINGS ===")
+            print("1. List Source Pricing")
+            print("2. Update Source Price")
+            print("3. Back")
+            choice = input("\nEnter choice (1-3): ").strip()
+            if choice == '1':
+                try:
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT source_id, source_name, price_per_100L FROM water_sources ORDER BY source_name")
+                    rows = cursor.fetchall()
+                    conn.close()
+                    print(f"\n{'ID':<5} {'Source':<22} {'Price/100L':<10}")
+                    print("-" * 40)
+                    for r in rows:
+                        print(f"{r[0]:<5} {r[1]:<22} ${r[2]:.2f}")
+                except Exception as e:
+                    print(f"Error listing pricing: {e}")
+                input("Press Enter to continue...")
+            elif choice == '2':
+                try:
+                    source_id = int(input("Source ID: ").strip())
+                    new_price = float(input("New price per 100L ($): ").strip())
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE water_sources SET price_per_100L = ? WHERE source_id = ?", (new_price, source_id))
+                    conn.commit()
+                    conn.close()
+                    print("Price updated.")
+                except ValueError:
+                    print("Invalid input.")
+                except Exception as e:
+                    print(f"Error updating price: {e}")
+                input("Press Enter to continue...")
+            elif choice == '3':
+                return
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
+    def audit_logs(self):
+        clear_screen()
+        print("\n=== AUDIT LOGS ===")
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT b.booking_id, b.booking_status, b.approval_date, h.family_name, ws.source_name, ts.slot_date
+                FROM bookings b
+                JOIN households h ON b.household_id = h.household_id
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE b.approval_date IS NOT NULL
+                ORDER BY b.approval_date DESC
+                LIMIT 20
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            if rows:
+                print(f"{'Booking':<8} {'Status':<10} {'When':<19} {'Family':<18} {'Source':<18} {'Date':<10}")
+                print("-" * 90)
+                for r in rows:
+                    when = r[2][:19] if r[2] else '—'
+                    print(f"{r[0]:<8} {r[1]:<10} {when:<19} {r[3]:<18} {r[4]:<18} {r[5]:<10}")
+            else:
+                print("No recent approval/denial events.")
+        except Exception as e:
+            print(f"Error fetching audit logs: {e}")
+        input("Press Enter to continue...")
+    
