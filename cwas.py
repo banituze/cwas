@@ -2222,3 +2222,19 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def run(self):
+        """Main application loop"""
+        self.main_menu()
+
+def main():
+    """Entry point"""
+    try:
+        app = WaterSchedulerApp()
+        app.run()
+    except KeyboardInterrupt:
+        print("\n\nSystem interrupted by user. Goodbye!")
+    except Exception as e:
+        print(f"\nUnexpected error: {e}")
+
+if __name__ == "__main__":
+    main()
