@@ -566,3 +566,80 @@ class WaterSchedulerApp:
                 print("Invalid choice.")
                 input("Press Enter to continue...")
     
+    # ----- Admin menu implementations -----
+    def user_management(self):
+        while True:
+            clear_screen()
+            print("\n=== USER MANAGEMENT ===")
+            print("1. List Users")
+            print("2. Activate/Deactivate User")
+            print("3. Reset User Password")
+            print("4. Create Household User")
+            print("5. Create Coordinator")
+            print("6. Create Administrator")
+            print("7. Back")
+            choice = input("\nEnter choice (1-7): ").strip()
+            if choice == '1':
+                try:
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        SELECT user_id, username, role, status, household_id, last_login
+                        FROM users ORDER BY role, username
+                    ''')
+                    rows = cursor.fetchall()
+                    conn.close()
+                    print(f"\n{'ID':<5} {'Username':<20} {'Role':<12} {'Status':<10} {'HH':<5} {'Last Login':<19}")
+                    print("-" * 75)
+                    for r in rows:
+                        last_login = r[5][:19] if r[5] else '—'
+                        print(f"{r[0]:<5} {r[1]:<20} {r[2]:<12} {r[3]:<10} {str(r[4] or ''):<5} {last_login:<19}")
+                except Exception as e:
+                    print(f"Error listing users: {e}")
+                input("Press Enter to continue...")
+            elif choice == '2':
+                try:
+                    user_id = int(input("User ID: ").strip())
+                    new_status = input("Set status to (active/inactive/suspended): ").strip()
+                    if new_status not in ['active', 'inactive', 'suspended']:
+                        print("Invalid status.")
+                    else:
+                        conn = self.db.get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE users SET status = ? WHERE user_id = ?", (new_status, user_id))
+                        conn.commit()
+                        conn.close()
+                        print("Status updated.")
+                except ValueError:
+                    print("Invalid input.")
+                except Exception as e:
+                    print(f"Error updating status: {e}")
+                input("Press Enter to continue...")
+            elif choice == '3':
+                try:
+                    user_id = int(input("User ID: ").strip())
+                    temp_password = secrets.token_urlsafe(8)
+                    password_hash, salt = hash_password(temp_password)
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE users SET password_hash = ?, salt = ? WHERE user_id = ?", (password_hash, salt, user_id))
+                    conn.commit()
+                    conn.close()
+                    print(f"Temporary password: {temp_password}")
+                except ValueError:
+                    print("Invalid input.")
+                except Exception as e:
+                    print(f"Error resetting password: {e}")
+                input("Press Enter to continue...")
+            elif choice == '4':
+                self.auth.register_user('household')
+            elif choice == '5':
+                self.auth.register_user('coordinator')
+            elif choice == '6':
+                self.auth.register_user('admin')
+            elif choice == '7':
+                return
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
