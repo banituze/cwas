@@ -484,3 +484,85 @@ class WaterSchedulerApp:
                 print("Invalid choice.")
                 input("Press Enter to continue...")
     
+    def coordinator_menu(self):
+        """Coordinator menu"""
+        while True:
+            clear_screen()
+            print(f"\n=== COORDINATOR MENU ===")
+            print(f"Welcome, {self.current_user['username']}!")
+            print("\n1. Manage Water Sources")
+            print("2. Review Booking Requests")
+            print("3. Generate Time Slots")
+            print("4. View Daily Summary")
+            print("5. Generate Reports")
+            print("6. Export Data")
+            print("7. Send Notifications")
+            print("8. Manage Households")
+            print("9. Logout")
+            
+            choice = input("\nEnter your choice (1-9): ").strip()
+            
+            if choice == '1':
+                self.manage_water_sources()
+            elif choice == '2':
+                self.review_bookings()
+            elif choice == '3':
+                self.generate_time_slots()
+            elif choice == '4':
+                self.view_daily_summary()
+            elif choice == '5':
+                self.generate_reports()
+            elif choice == '6':
+                self.export_data()
+            elif choice == '7':
+                self.send_notifications()
+            elif choice == '8':
+                self.manage_households()
+            elif choice == '9':
+                self.current_user = None
+                return
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
+    def admin_menu(self):
+        """Administrator menu"""
+        while True:
+            clear_screen()
+            print(f"\n=== ADMINISTRATOR MENU ===")
+            print(f"Welcome, {self.current_user['username']}!")
+            print("\n1. User Management")
+            print("2. System Reports")
+            print("3. Database Management")
+            print("4. Export All Data")
+            print("5. System Settings")
+            print("6. Audit Logs")
+            print("7. Financial Reports")
+            print("8. Backup Database")
+            print("9. Logout")
+            
+            choice = input("\nEnter your choice (1-9): ").strip()
+            
+            if choice == '1':
+                self.user_management()
+            elif choice == '2':
+                self.system_reports()
+            elif choice == '3':
+                self.database_management()
+            elif choice == '4':
+                self.export_all_data()
+            elif choice == '5':
+                self.system_settings()
+            elif choice == '6':
+                self.audit_logs()
+            elif choice == '7':
+                self.financial_reports()
+            elif choice == '8':
+                self.backup_database()
+            elif choice == '9':
+                self.current_user = None
+                return
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
