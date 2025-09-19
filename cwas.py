@@ -1847,3 +1847,40 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def view_daily_summary(self):
+        """View daily summary"""
+        clear_screen()
+        date = input("Enter date (YYYY-MM-DD) or press Enter for today: ").strip()
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get summary statistics
+            cursor.execute('''
+                SELECT 
+                    COUNT(CASE WHEN b.booking_status = 'pending' THEN 1 END) as pending,
+                    COUNT(CASE WHEN b.booking_status = 'approved' THEN 1 END) as approved,
+                    COUNT(CASE WHEN b.collection_status = 'completed' THEN 1 END) as completed,
+                    SUM(CASE WHEN b.booking_status = 'approved' THEN b.amount_charged ELSE 0 END) as revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                WHERE ts.slot_date = ?
+            ''', (date,))
+            
+            summary = cursor.fetchone()
+            conn.close()
+            
+            print(f"\n=== DAILY SUMMARY - {date} ===")
+            print(f"Pending Bookings: {summary[0] or 0}")
+            print(f"Approved Bookings: {summary[1] or 0}")
+            print(f"Completed Collections: {summary[2] or 0}")
+            print(f"Total Revenue: ${summary[3] or 0:.2f}")
+            
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+        
+        input("Press Enter to continue...")
+    
