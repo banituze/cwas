@@ -1884,3 +1884,131 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def manage_households(self):
+        """Manage households"""
+        while True:
+            clear_screen()
+            print("\n=== MANAGE HOUSEHOLDS ===")
+            print("1. View All Households")
+            print("2. Add New Household")
+            print("3. Update Household")
+            print("4. Deactivate/Activate Household")
+            print("5. View Household Details")
+            print("6. Back to Main Menu")
+            
+            choice = input("\nEnter choice (1-6): ").strip()
+            
+            if choice == '1':
+                self.view_all_households()
+            elif choice == '2':
+                self.add_household()
+            elif choice == '3':
+                self.update_household()
+            elif choice == '4':
+                self.toggle_household_status()
+            elif choice == '5':
+                self.view_household_details()
+            elif choice == '6':
+                break
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
+    def view_all_households(self):
+        """View all households"""
+        clear_screen()
+        print("\n=== ALL HOUSEHOLDS ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT household_id, family_name, contact_phone, contact_email, 
+                       family_size, priority_level, address, balance, status
+                FROM households
+                ORDER BY family_name
+            ''')
+            
+            households = cursor.fetchall()
+            conn.close()
+            
+            if households:
+                print(f"{'ID':<4} {'Family Name':<20} {'Phone':<15} {'Size':<5} {'Priority':<10} {'Balance':<10} {'Status':<10}")
+                print("-" * 90)
+                
+                for household in households:
+                    balance = f"${household[7]:.2f}" if household[7] else "$0.00"
+                    print(f"{household[0]:<4} {household[1]:<20} {household[2] or 'N/A':<15} "
+                          f"{household[4]:<5} {household[5]:<10} {balance:<10} {household[8]:<10}")
+            else:
+                print("No households found.")
+                
+        except Exception as e:
+            print(f"Error viewing households: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def add_household(self):
+        """Add new household"""
+        clear_screen()
+        print("\n=== ADD NEW HOUSEHOLD ===")
+        
+        try:
+            family_name = input("Family name: ").strip()
+            if not family_name:
+                print("Family name is required.")
+                input("Press Enter to continue...")
+                return
+            
+            contact_phone = input("Contact phone: ").strip()
+            contact_email = input("Contact email: ").strip()
+            
+            family_size = int(input("Family size: "))
+            if family_size <= 0:
+                print("Family size must be greater than 0.")
+                input("Press Enter to continue...")
+                return
+            
+            priority_level = input("Priority level (high/normal/low) [normal]: ").strip() or 'normal'
+            if priority_level not in ['high', 'normal', 'low']:
+                priority_level = 'normal'
+            
+            address = input("Address: ").strip()
+            balance = float(input("Initial balance ($) [50.00]: ").strip() or "50.00")
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO households (family_name, contact_phone, contact_email, 
+                                      family_size, priority_level, address, balance)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (family_name, contact_phone, contact_email, family_size, 
+                  priority_level, address, balance))
+            
+            household_id = cursor.lastrowid
+            
+            # Create user account for household
+            username = family_name.lower().replace(' ', '_')
+            password, salt = hash_password("password123")
+            cursor.execute('''
+                INSERT INTO users (username, email, password_hash, salt, role, household_id, is_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (username, contact_email or f"{username}@watersystem.local", 
+                  password, salt, "household", household_id, True))
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"Household added successfully! ID: {household_id}")
+            print(f"Username: {username}")
+            print(f"Password: password123")
+            
+        except ValueError:
+            print("Invalid input format.")
+        except Exception as e:
+            print(f"Error adding household: {e}")
+        
+        input("Press Enter to continue...")
+    
