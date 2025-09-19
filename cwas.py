@@ -26,3 +26,7 @@ def hash_password(password, salt=None):
         salt = secrets.token_hex(16)
     return hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex(), salt
 
+def verify_password(password, hashed_password, salt):
+    """Verify password against hash"""
+    return hashed_password == hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
+
