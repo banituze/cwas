@@ -1079,3 +1079,81 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def view_water_sources(self):
+        """View available water sources"""
+        clear_screen()
+        print("\n=== AVAILABLE WATER SOURCES ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT source_name, source_type, location, price_per_100L, 
+                       operating_start_time, operating_end_time, priority_access
+                FROM water_sources 
+                WHERE status = 'active'
+                ORDER BY source_name
+            ''')
+            
+            sources = cursor.fetchall()
+            conn.close()
+            
+            if sources:
+                print(f"{'Source':<20} {'Type':<10} {'Location':<25} {'Price/100L':<12} {'Hours':<15} {'Access':<15}")
+                print("-" * 100)
+                
+                for source in sources:
+                    hours = f"{source[4]}-{source[5]}"
+                    price = f"${source[3]:.2f}"
+                    access = source[6] or "All"
+                    print(f"{source[0]:<20} {source[1]:<10} {source[2]:<25} {price:<12} {hours:<15} {access:<15}")
+            else:
+                print("No active water sources found.")
+                
+        except Exception as e:
+            print(f"Error viewing water sources: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def view_receipts(self):
+        """View receipts"""
+        clear_screen()
+        print("\n=== MY RECEIPTS ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT r.receipt_number, r.amount, r.water_amount, r.issue_date,
+                       ws.source_name, ts.slot_date
+                FROM receipts r
+                JOIN bookings b ON r.booking_id = b.booking_id
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE r.household_id = ?
+                ORDER BY r.issue_date DESC
+                LIMIT 20
+            ''', (self.current_user['household_id'],))
+            
+            receipts = cursor.fetchall()
+            conn.close()
+            
+            if receipts:
+                print(f"{'Receipt#':<15} {'Amount':<10} {'Water(L)':<10} {'Date':<12} {'Source':<20} {'Collection Date':<15}")
+                print("-" * 85)
+                
+                for receipt in receipts:
+                    amount = f"${receipt[1]:.2f}"
+                    issue_date = receipt[3][:10] if receipt[3] else "N/A"
+                    print(f"{receipt[0]:<15} {amount:<10} {receipt[2]:<10} {issue_date:<12} "
+                          f"{receipt[4]:<20} {receipt[5]:<15}")
+            else:
+                print("No receipts found.")
+                
+        except Exception as e:
+            print(f"Error viewing receipts: {e}")
+        
+        input("Press Enter to continue...")
+    
