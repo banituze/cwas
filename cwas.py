@@ -1725,3 +1725,125 @@ class WaterSchedulerApp:
         except Exception as e:
             print(f"Error exporting usage stats: {e}")
     
+    def manage_water_sources(self):
+        """Manage water sources"""
+        while True:
+            clear_screen()
+            print("\n=== MANAGE WATER SOURCES ===")
+            print("1. View All Sources")
+            print("2. Add New Source")
+            print("3. Update Source")
+            print("4. Toggle Source Status")
+            print("5. Back to Main Menu")
+            
+            choice = input("\nEnter choice (1-5): ").strip()
+            
+            if choice == '1':
+                self.view_all_sources()
+            elif choice == '2':
+                self.add_water_source()
+            elif choice == '3':
+                self.update_water_source()
+            elif choice == '4':
+                self.toggle_source_status()
+            elif choice == '5':
+                break
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
+    def view_all_sources(self):
+        """View all water sources"""
+        clear_screen()
+        print("\n=== ALL WATER SOURCES ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT source_id, source_name, source_type, location, capacity_per_hour,
+                       operating_start_time, operating_end_time, status, price_per_100L
+                FROM water_sources
+                ORDER BY source_name
+            ''')
+            
+            sources = cursor.fetchall()
+            conn.close()
+            
+            if sources:
+                print(f"{'ID':<4} {'Name':<20} {'Type':<10} {'Capacity':<10} {'Hours':<15} {'Price':<8} {'Status':<10}")
+                print("-" * 80)
+                
+                for source in sources:
+                    hours = f"{source[5]}-{source[6]}"
+                    price = f"${source[8]:.2f}"
+                    print(f"{source[0]:<4} {source[1]:<20} {source[2]:<10} {source[4]:<10} "
+                          f"{hours:<15} {price:<8} {source[7]:<10}")
+            else:
+                print("No water sources found.")
+                
+        except Exception as e:
+            print(f"Error viewing sources: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def add_water_source(self):
+        """Add new water source"""
+        clear_screen()
+        print("\n=== ADD NEW WATER SOURCE ===")
+        
+        try:
+            name = input("Source name: ").strip()
+            if not name:
+                print("Name is required.")
+                input("Press Enter to continue...")
+                return
+            
+            print("Source types: 1=Well, 2=Borehole, 3=Tap, 4=Spring, 5=Tank")
+            type_choice = input("Select type (1-5): ").strip()
+            types = {'1': 'Well', '2': 'Borehole', '3': 'Tap', '4': 'Spring', '5': 'Tank'}
+            source_type = types.get(type_choice)
+            
+            if not source_type:
+                print("Invalid type selection.")
+                input("Press Enter to continue...")
+                return
+            
+            location = input("Location: ").strip()
+            if not location:
+                print("Location is required.")
+                input("Press Enter to continue...")
+                return
+            
+            capacity = int(input("Capacity per hour: "))
+            start_time = input("Opening time (HH:MM): ").strip()
+            end_time = input("Closing time (HH:MM): ").strip()
+            price = float(input("Price per 100L ($): "))
+            
+            # Validate times
+            datetime.strptime(start_time, '%H:%M')
+            datetime.strptime(end_time, '%H:%M')
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO water_sources (source_name, source_type, location, capacity_per_hour,
+                                         operating_start_time, operating_end_time, price_per_100L)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (name, source_type, location, capacity, start_time, end_time, price))
+            
+            source_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            
+            print(f"Water source added successfully! ID: {source_id}")
+            
+        except ValueError:
+            print("Invalid input format.")
+        except Exception as e:
+            print(f"Error adding source: {e}")
+        
+        input("Press Enter to continue...")
+    
