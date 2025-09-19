@@ -992,3 +992,90 @@ class WaterSchedulerApp:
             print(f"Error creating booking: {e}")
             return None
     
+    def view_my_bookings(self):
+        """View household bookings with status"""
+        clear_screen()
+        print("\n=== MY BOOKINGS ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT b.booking_id, ws.source_name, ts.slot_date, ts.start_time, ts.end_time,
+                       b.booking_status, b.collection_status, b.amount_charged, b.receipt_number
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE b.household_id = ?
+                ORDER BY ts.slot_date DESC, ts.start_time DESC
+                LIMIT 20
+            ''', (self.current_user['household_id'],))
+            
+            bookings = cursor.fetchall()
+            conn.close()
+            
+            if bookings:
+                print(f"{'ID':<6} {'Source':<18} {'Date':<12} {'Time':<12} {'Status':<12} {'Cost':<8} {'Receipt':<12}")
+                print("-" * 85)
+                
+                for booking in bookings:
+                    time_range = f"{booking[3]}-{booking[4]}"
+                    cost = f"${booking[7]:.2f}" if booking[7] else "N/A"
+                    receipt = booking[8] or "N/A"
+                    print(f"{booking[0]:<6} {booking[1]:<18} {booking[2]:<12} {time_range:<12} "
+                          f"{booking[5]:<12} {cost:<8} {receipt:<12}")
+            else:
+                print("No bookings found.")
+                
+        except Exception as e:
+            print(f"Error viewing bookings: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def cancel_booking(self):
+        """Cancel booking"""
+        clear_screen()
+        print("\n=== CANCEL BOOKING ===")
+        
+        try:
+            booking_id = int(input("Enter Booking ID to cancel: "))
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT booking_status FROM bookings 
+                WHERE booking_id = ? AND household_id = ?
+            ''', (booking_id, self.current_user['household_id']))
+            
+            result = cursor.fetchone()
+            if not result:
+                print("Booking not found.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            if result[0] not in ['pending', 'approved']:
+                print("Cannot cancel this booking.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            cursor.execute('''
+                UPDATE bookings SET booking_status = 'cancelled' 
+                WHERE booking_id = ? AND household_id = ?
+            ''', (booking_id, self.current_user['household_id']))
+            
+            conn.commit()
+            conn.close()
+            
+            print("Booking cancelled successfully.")
+            
+        except ValueError:
+            print("Invalid Booking ID.")
+        except Exception as e:
+            print(f"Error cancelling booking: {e}")
+        
+        input("Press Enter to continue...")
+    
