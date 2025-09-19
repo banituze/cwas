@@ -20,3 +20,9 @@ def clear_screen():
     """Clear terminal screen for better UX"""
     os.system('cls' if os.name == 'nt' else 'clear')
 
+def hash_password(password, salt=None):
+    """Hash password with salt for security"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    return hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex(), salt
+
