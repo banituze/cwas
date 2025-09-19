@@ -1234,3 +1234,73 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def update_profile(self):
+        """Update household profile"""
+        clear_screen()
+        print("\n=== UPDATE PROFILE ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT family_name, contact_phone, family_size, address
+                FROM households WHERE household_id = ?
+            ''', (self.current_user['household_id'],))
+            
+            current = cursor.fetchone()
+            if not current:
+                print("Profile not found.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            print(f"Current family name: {current[0]}")
+            new_name = input("New family name (press Enter to keep current): ").strip()
+            if not new_name:
+                new_name = current[0]
+            
+            print(f"Current phone: {current[1]}")
+            new_phone = input("New phone (press Enter to keep current): ").strip()
+            if not new_phone:
+                new_phone = current[1]
+            
+            print(f"Current family size: {current[2]}")
+            size_input = input("New family size (press Enter to keep current): ").strip()
+            if size_input:
+                try:
+                    new_size = int(size_input)
+                    if new_size <= 0:
+                        print("Invalid family size.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        return
+                except ValueError:
+                    print("Invalid family size.")
+                    conn.close()
+                    input("Press Enter to continue...")
+                    return
+            else:
+                new_size = current[2]
+            
+            print(f"Current address: {current[3]}")
+            new_address = input("New address (press Enter to keep current): ").strip()
+            if not new_address:
+                new_address = current[3]
+            
+            cursor.execute('''
+                UPDATE households 
+                SET family_name = ?, contact_phone = ?, family_size = ?, address = ?
+                WHERE household_id = ?
+            ''', (new_name, new_phone, new_size, new_address, self.current_user['household_id']))
+            
+            conn.commit()
+            conn.close()
+            
+            print("Profile updated successfully!")
+            
+        except Exception as e:
+            print(f"Error updating profile: {e}")
+        
+        input("Press Enter to continue...")
+    
