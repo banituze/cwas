@@ -2152,3 +2152,73 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def view_household_details(self):
+        """View detailed household information"""
+        clear_screen()
+        print("\n=== HOUSEHOLD DETAILS ===")
+        
+        try:
+            household_id = int(input("Enter Household ID: "))
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT household_id, family_name, contact_phone, contact_email, 
+                       family_size, priority_level, address, balance, status, 
+                       registration_date
+                FROM households WHERE household_id = ?
+            ''', (household_id,))
+            
+            household = cursor.fetchone()
+            if not household:
+                print("Household not found.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            print(f"\nHousehold ID: {household[0]}")
+            print(f"Family Name: {household[1]}")
+            print(f"Contact Phone: {household[2] or 'N/A'}")
+            print(f"Contact Email: {household[3] or 'N/A'}")
+            print(f"Family Size: {household[4]}")
+            print(f"Priority Level: {household[5]}")
+            print(f"Address: {household[6] or 'N/A'}")
+            print(f"Balance: ${household[7]:.2f}")
+            print(f"Status: {household[8]}")
+            print(f"Registration Date: {household[9]}")
+            
+            # Show recent bookings
+            cursor.execute('''
+                SELECT b.booking_id, ws.source_name, ts.slot_date, ts.start_time, 
+                       b.booking_status, b.amount_charged
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE b.household_id = ?
+                ORDER BY ts.slot_date DESC
+                LIMIT 5
+            ''', (household_id,))
+            
+            recent_bookings = cursor.fetchall()
+            if recent_bookings:
+                print(f"\nRecent Bookings:")
+                print(f"{'ID':<6} {'Source':<18} {'Date':<12} {'Time':<12} {'Status':<12} {'Amount':<8}")
+                print("-" * 70)
+                for booking in recent_bookings:
+                    time_range = f"{booking[3]}-{booking[4]}" if booking[4] else "N/A"
+                    amount = f"${booking[5]:.2f}" if booking[5] else "N/A"
+                    print(f"{booking[0]:<6} {booking[1]:<18} {booking[2]:<12} {time_range:<12} "
+                          f"{booking[4]:<12} {amount:<8}")
+            else:
+                print("\nNo recent bookings found.")
+            
+            conn.close()
+            
+        except ValueError:
+            print("Invalid Household ID.")
+        except Exception as e:
+            print(f"Error viewing household details: {e}")
+        
+        input("Press Enter to continue...")
+    
