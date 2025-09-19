@@ -374,3 +374,67 @@ class AuthenticationManager:
             input("Press Enter to continue...")
             return None
     
+    def validate_email(self, email):
+        """Validate email format"""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, email) is not None
+
+class WaterSchedulerApp:
+    def __init__(self):
+        self.db = DatabaseManager()
+        self.auth = AuthenticationManager(self.db)
+        self.current_user = None
+    
+    def display_welcome(self):
+        """Display welcome screen"""
+        clear_screen()
+        print("\n" + "="*60)
+        print("    COMMUNITY WATER ACCESS SCHEDULER")
+        print("="*60)
+        print("Welcome to the Community Water Access Scheduler!")
+        print("This system helps manage fair access to shared water sources.")
+        print("Water collection pricing: $0.05 per 100L container")
+        print("="*60)
+    
+    def main_menu(self):
+        """Main authentication menu"""
+        while True:
+            clear_screen()
+            self.display_welcome()
+            print("\n=== MAIN MENU ===")
+            print("1. Login")
+            print("2. Register as Household Member")
+            print("3. Register as Coordinator")
+            print("4. Register as System Administrator")
+            print("5. Exit System")
+            
+            choice = input("\nEnter your choice (1-5): ").strip()
+            
+            if choice == '1':
+                user = self.auth.login_user()
+                if user:
+                    self.current_user = user
+                    self.route_user_menu()
+            elif choice == '2':
+                self.auth.register_user('household')
+            elif choice == '3':
+                self.auth.register_user('coordinator')
+            elif choice == '4':
+                self.auth.register_user('admin')
+            elif choice == '5':
+                print("\nThank you for using the Community Water Access Scheduler!")
+                break
+            else:
+                print("Invalid choice. Please select 1-5.")
+                input("Press Enter to continue...")
+    
+    def route_user_menu(self):
+        """Route user to appropriate menu"""
+        while self.current_user:
+            if self.current_user['role'] == 'household':
+                self.household_menu()
+            elif self.current_user['role'] == 'coordinator':
+                self.coordinator_menu()
+            elif self.current_user['role'] == 'admin':
+                self.admin_menu()
+    
