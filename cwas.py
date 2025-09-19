@@ -1585,3 +1585,143 @@ class WaterSchedulerApp:
         except Exception as e:
             print(f"Error generating report: {e}")
     
+    def export_data(self):
+        """Export data to CSV"""
+        clear_screen()
+        print("\n=== EXPORT DATA ===")
+        print("1. Export All Bookings")
+        print("2. Export Household Data")
+        print("3. Export Financial Data")
+        print("4. Export Usage Statistics")
+        
+        choice = input("\nSelect export type (1-4): ").strip()
+        
+        try:
+            if choice == '1':
+                self.export_bookings()
+            elif choice == '2':
+                self.export_households()
+            elif choice == '3':
+                self.export_financial()
+            elif choice == '4':
+                self.export_usage_stats()
+            else:
+                print("Invalid choice.")
+                
+        except Exception as e:
+            print(f"Export failed: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def export_bookings(self):
+        """Export bookings to CSV"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT b.booking_id, h.family_name, ws.source_name, ts.slot_date,
+                       ts.start_time, ts.end_time, b.booking_status, b.amount_charged,
+                       b.water_amount_collected, b.receipt_number
+                FROM bookings b
+                JOIN households h ON b.household_id = h.household_id
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                ORDER BY ts.slot_date DESC
+            ''')
+            
+            bookings = cursor.fetchall()
+            conn.close()
+            
+            if not os.path.exists('exports'):
+                os.makedirs('exports')
+            
+            filename = f"exports/bookings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Booking ID', 'Family Name', 'Source', 'Date', 'Start Time', 
+                               'End Time', 'Status', 'Amount Charged', 'Water Amount', 'Receipt Number'])
+                writer.writerows(bookings)
+            
+            print(f"Bookings exported to: {filename}")
+            
+        except Exception as e:
+            print(f"Error exporting bookings: {e}")
+    
+    def export_households(self):
+        """Export households to CSV"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT household_id, family_name, contact_phone, contact_email, family_size,
+                       priority_level, address, balance, status
+                FROM households ORDER BY family_name
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            if not os.path.exists('exports'):
+                os.makedirs('exports')
+            filename = f"exports/households_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Household ID', 'Family Name', 'Phone', 'Email', 'Family Size', 'Priority', 'Address', 'Balance', 'Status'])
+                writer.writerows(rows)
+            print(f"Households exported to: {filename}")
+        except Exception as e:
+            print(f"Error exporting households: {e}")
+    
+    def export_financial(self):
+        """Export simple financial summary to CSV"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ts.slot_date as date, SUM(b.amount_charged) as revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                WHERE b.booking_status = 'approved'
+                GROUP BY ts.slot_date ORDER BY ts.slot_date DESC
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            if not os.path.exists('exports'):
+                os.makedirs('exports')
+            filename = f"exports/financial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Date', 'Revenue'])
+                for r in rows:
+                    writer.writerow([r[0], f"{r[1] or 0:.2f}"])
+            print(f"Financial data exported to: {filename}")
+        except Exception as e:
+            print(f"Error exporting financial data: {e}")
+    
+    def export_usage_stats(self):
+        """Export usage statistics to CSV"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ws.source_name, COUNT(b.booking_id) as bookings, SUM(b.water_amount_collected) as total_water
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE b.booking_status = 'approved'
+                GROUP BY ws.source_id, ws.source_name
+                ORDER BY bookings DESC
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            if not os.path.exists('exports'):
+                os.makedirs('exports')
+            filename = f"exports/usage_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Source', 'Bookings', 'Total Water (L)'])
+                writer.writerows(rows)
+            print(f"Usage stats exported to: {filename}")
+        except Exception as e:
+            print(f"Error exporting usage stats: {e}")
+    
