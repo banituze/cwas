@@ -30,3 +30,11 @@ def verify_password(password, hashed_password, salt):
     """Verify password against hash"""
     return hashed_password == hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
 
+class DatabaseManager:
+    def __init__(self, db_path='water_scheduler.db'):
+        self.db_path = db_path
+        self.init_database()
+    
+    def get_connection(self):
+        return sqlite3.connect(self.db_path)
+    
