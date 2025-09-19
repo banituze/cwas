@@ -1510,3 +1510,78 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def generate_reports(self):
+        """Generate various reports"""
+        clear_screen()
+        print("\n=== GENERATE REPORTS ===")
+        print("1. Daily Usage Report")
+        print("2. Revenue Report")
+        print("3. Household Activity Report")
+        print("4. Source Performance Report")
+        
+        choice = input("\nSelect report type (1-4): ").strip()
+        
+        if choice == '1':
+            self.daily_usage_report()
+        elif choice == '2':
+            self.revenue_report()
+        elif choice == '3':
+            self.household_activity_report()
+        elif choice == '4':
+            self.source_performance_report()
+        else:
+            print("Invalid choice.")
+        
+        input("Press Enter to continue...")
+    
+    def daily_usage_report(self):
+        """Generate daily usage report"""
+        date = input("Enter date (YYYY-MM-DD) or press Enter for today: ").strip()
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT ws.source_name, COUNT(b.booking_id) as bookings,
+                       SUM(b.water_amount_collected) as total_water,
+                       SUM(b.amount_charged) as total_revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE ts.slot_date = ? AND b.booking_status = 'approved'
+                GROUP BY ws.source_id, ws.source_name
+                ORDER BY total_revenue DESC
+            ''', (date,))
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            print(f"\n=== DAILY USAGE REPORT - {date} ===")
+            if results:
+                print(f"{'Source':<20} {'Bookings':<10} {'Water(L)':<12} {'Revenue':<10}")
+                print("-" * 55)
+                
+                total_bookings = 0
+                total_water = 0
+                total_revenue = 0
+                
+                for row in results:
+                    water = row[2] or 0
+                    revenue = row[3] or 0
+                    total_bookings += row[1]
+                    total_water += water
+                    total_revenue += revenue
+                    
+                    print(f"{row[0]:<20} {row[1]:<10} {water:<12} ${revenue:<9.2f}")
+                
+                print("-" * 55)
+                print(f"{'TOTAL':<20} {total_bookings:<10} {total_water:<12} ${total_revenue:<9.2f}")
+            else:
+                print("No data found for this date.")
+                
+        except Exception as e:
+            print(f"Error generating report: {e}")
+    
