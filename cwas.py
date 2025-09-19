@@ -836,3 +836,159 @@ class WaterSchedulerApp:
             print(f"Backup failed: {e}")
         input("Press Enter to continue...")
     
+    def get_household_balance(self):
+        """Get household account balance"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT balance FROM households WHERE household_id = ?", 
+                          (self.current_user['household_id'],))
+            result = cursor.fetchone()
+            conn.close()
+            return result[0] if result else 0.00
+        except:
+            return 0.00
+    
+    def make_booking(self):
+        """Make water collection booking with improved date selection"""
+        clear_screen()
+        print("\n=== MAKE WATER COLLECTION BOOKING ===")
+        
+        # Show next 7 days as options
+        print("Available dates for booking:")
+        dates = []
+        for i in range(7):
+            date = (datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d')
+            day_name = (datetime.now() + timedelta(days=i)).strftime('%A')
+            dates.append(date)
+            print(f"{i+1}. {date} ({day_name})")
+        
+        try:
+            choice = int(input("\nSelect date (1-7): ")) - 1
+            if choice < 0 or choice >= 7:
+                print("Invalid selection.")
+                input("Press Enter to continue...")
+                return
+            
+            selected_date = dates[choice]
+            
+        except ValueError:
+            print("Invalid input.")
+            input("Press Enter to continue...")
+            return
+        
+        # Show available slots for selected date
+        available_slots = self.get_available_slots(selected_date)
+        
+        if not available_slots:
+            print(f"No available time slots found for {selected_date}.")
+            input("Press Enter to continue...")
+            return
+        
+        print(f"\nAvailable slots for {selected_date}:")
+        print(f"{'#':<3} {'Source':<20} {'Time':<15} {'Price/100L':<12} {'Available':<10}")
+        print("-" * 65)
+        
+        for i, slot in enumerate(available_slots):
+            time_range = f"{slot[3]}-{slot[4]}"
+            available_count = slot[6] - slot[5]
+            price = f"${slot[8]:.2f}"
+            print(f"{i+1:<3} {slot[1]:<20} {time_range:<15} {price:<12} {available_count:<10}")
+        
+        try:
+            slot_choice = int(input(f"\nSelect slot (1-{len(available_slots)}): ")) - 1
+            if slot_choice < 0 or slot_choice >= len(available_slots):
+                print("Invalid selection.")
+                input("Press Enter to continue...")
+                return
+            
+            selected_slot = available_slots[slot_choice]
+            slot_id = selected_slot[0]
+            
+            # Estimate cost
+            water_amount = int(input("Estimated water amount (liters): "))
+            cost = (water_amount / 100) * selected_slot[8]
+            
+            print(f"\nBooking Summary:")
+            print(f"Date: {selected_date}")
+            print(f"Source: {selected_slot[1]}")
+            print(f"Time: {selected_slot[3]}-{selected_slot[4]}")
+            print(f"Estimated cost: ${cost:.2f}")
+            
+            confirm = input("\nConfirm booking? (y/n): ").lower()
+            if confirm == 'y':
+                booking_id = self.create_booking(slot_id, water_amount, cost)
+                if booking_id:
+                    print(f"\nBooking request submitted! Booking ID: {booking_id}")
+                    print("Your booking is pending approval.")
+                else:
+                    print("Booking failed.")
+            
+        except ValueError:
+            print("Invalid input.")
+        
+        input("Press Enter to continue...")
+    
+    def get_available_slots(self, date):
+        """Get available time slots for a date"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get household priority
+            cursor.execute("SELECT priority_level FROM households WHERE household_id = ?",
+                          (self.current_user['household_id'],))
+            priority = cursor.fetchone()[0]
+            
+            cursor.execute('''
+                SELECT ts.slot_id, ws.source_name, ts.slot_date, ts.start_time, ts.end_time,
+                       ts.current_bookings, ts.max_households, ws.location, ws.price_per_100L,
+                       ws.priority_access
+                FROM time_slots ts
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE ts.slot_date = ? AND ts.status = 'available' 
+                AND ts.current_bookings < ts.max_households
+                AND ws.status = 'active'
+                AND (ws.priority_access = 'all' OR ws.priority_access LIKE ?)
+                ORDER BY ws.source_name, ts.start_time
+            ''', (date, f'%{priority}%'))
+            
+            slots = cursor.fetchall()
+            conn.close()
+            return slots
+            
+        except Exception as e:
+            print(f"Error getting available slots: {e}")
+            return []
+    
+    def create_booking(self, slot_id, water_amount, estimated_cost):
+        """Create new booking"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO bookings (household_id, slot_id, water_amount_collected, amount_charged)
+                VALUES (?, ?, ?, ?)
+            ''', (self.current_user['household_id'], slot_id, water_amount, estimated_cost))
+            
+            booking_id = cursor.lastrowid
+            receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
+            
+            cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?",
+                          (receipt_number, booking_id))
+            
+            conn.commit()
+            conn.close()
+            return booking_id
+            
+        except sqlite3.IntegrityError as e:
+            if 'UNIQUE constraint failed: bookings.household_id, bookings.slot_id' in str(e):
+                print("You already have a booking for this time slot.")
+            else:
+                print(f"Database error creating booking: {e}")
+            return None
+        except Exception as e:
+            print(f"Error creating booking: {e}")
+            return None
+    
