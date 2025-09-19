@@ -438,3 +438,49 @@ class WaterSchedulerApp:
             elif self.current_user['role'] == 'admin':
                 self.admin_menu()
     
+    def household_menu(self):
+        """Household member menu"""
+        while True:
+            clear_screen()
+            print(f"\n=== HOUSEHOLD MENU ===")
+            print(f"Welcome, {self.current_user['username']}!")
+            
+            # Show account balance
+            balance = self.get_household_balance()
+            print(f"Account Balance: ${balance:.2f}")
+            
+            print("\n1. Make Water Collection Booking")
+            print("2. View My Bookings")
+            print("3. Cancel Booking")
+            print("4. View Available Water Sources")
+            print("5. View My Receipts")
+            print("6. Add Funds to Account")
+            print("7. View Notifications")
+            print("8. Update Profile")
+            print("9. Logout")
+            
+            choice = input("\nEnter your choice (1-9): ").strip()
+            
+            if choice == '1':
+                self.make_booking()
+            elif choice == '2':
+                self.view_my_bookings()
+            elif choice == '3':
+                self.cancel_booking()
+            elif choice == '4':
+                self.view_water_sources()
+            elif choice == '5':
+                self.view_receipts()
+            elif choice == '6':
+                self.add_funds()
+            elif choice == '7':
+                self.view_notifications()
+            elif choice == '8':
+                self.update_profile()
+            elif choice == '9':
+                self.current_user = None
+                return
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+    
