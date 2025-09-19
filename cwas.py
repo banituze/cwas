@@ -1304,3 +1304,209 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def review_bookings(self):
+        """Review and approve/deny booking requests"""
+        clear_screen()
+        print("\n=== REVIEW BOOKING REQUESTS ===")
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT b.booking_id, h.family_name, ws.source_name, ts.slot_date,
+                       ts.start_time, ts.end_time, b.water_amount_collected, b.amount_charged,
+                       h.priority_level, h.balance
+                FROM bookings b
+                JOIN households h ON b.household_id = h.household_id
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                JOIN water_sources ws ON ts.source_id = ws.source_id
+                WHERE b.booking_status = 'pending'
+                ORDER BY ts.slot_date, ts.start_time
+            ''')
+            
+            pending_bookings = cursor.fetchall()
+            
+            if not pending_bookings:
+                print("No pending booking requests.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            print(f"{'ID':<6} {'Family':<18} {'Source':<18} {'Date':<12} {'Time':<12} {'Priority':<10} {'Cost':<8}")
+            print("-" * 90)
+            
+            for booking in pending_bookings:
+                time_range = f"{booking[4]}-{booking[5]}"
+                cost = f"${booking[7]:.2f}" if booking[7] else "N/A"
+                print(f"{booking[0]:<6} {booking[1]:<18} {booking[2]:<18} {booking[3]:<12} "
+                      f"{time_range:<12} {booking[8]:<10} {cost:<8}")
+            
+            try:
+                booking_id = int(input("\nEnter Booking ID to review: "))
+                action = input("Action (approve/deny): ").lower()
+                
+                if action not in ['approve', 'deny']:
+                    print("Invalid action.")
+                    conn.close()
+                    input("Press Enter to continue...")
+                    return
+                
+                new_status = 'approved' if action == 'approve' else 'denied'
+                
+                cursor.execute('''
+                    UPDATE bookings 
+                    SET booking_status = ?, approval_date = ?
+                    WHERE booking_id = ?
+                ''', (new_status, datetime.now().isoformat(' '), booking_id))
+                
+                # Update slot bookings count if approved
+                if action == 'approve':
+                    cursor.execute('''
+                        UPDATE time_slots 
+                        SET current_bookings = current_bookings + 1
+                        WHERE slot_id = (SELECT slot_id FROM bookings WHERE booking_id = ?)
+                    ''', (booking_id,))
+                    # Create receipt if missing
+                    cursor.execute('''
+                        SELECT b.household_id, b.amount_charged, b.water_amount_collected, b.receipt_number
+                        FROM bookings b
+                        WHERE b.booking_id = ?
+                    ''', (booking_id,))
+                    rec = cursor.fetchone()
+                    if rec:
+                        household_id, amount, water_amount, receipt_number = rec
+                        # Deduct funds from household balance upon approval
+                        cursor.execute('''
+                            UPDATE households
+                            SET balance = balance - ?
+                            WHERE household_id = ?
+                        ''', (amount or 0.0, household_id))
+                        if not receipt_number:
+                            receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
+                            cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?", (receipt_number, booking_id))
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (receipt_number, household_id, booking_id, amount or 0.0, water_amount or 0))
+                
+                # Create notification
+                cursor.execute("SELECT household_id FROM bookings WHERE booking_id = ?", (booking_id,))
+                household_id = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT user_id FROM users WHERE household_id = ?", (household_id,))
+                user_result = cursor.fetchone()
+                
+                if user_result:
+                    message = f"Your booking request #{booking_id} has been {new_status}."
+                    cursor.execute('''
+                        INSERT INTO notifications (user_id, household_id, title, message, notification_type)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (user_result[0], household_id, f"Booking {new_status.title()}", message, 'booking_update'))
+                
+                conn.commit()
+                conn.close()
+                
+                print(f"Booking {new_status} successfully!")
+                
+            except ValueError:
+                print("Invalid Booking ID.")
+            
+        except Exception as e:
+            print(f"Error reviewing bookings: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def generate_time_slots(self):
+        """Generate time slots for water sources"""
+        clear_screen()
+        print("\n=== GENERATE TIME SLOTS ===")
+        
+        try:
+            # Show water sources
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT source_id, source_name, operating_start_time, operating_end_time, capacity_per_hour
+                FROM water_sources WHERE status = 'active'
+                ORDER BY source_name
+            ''')
+            
+            sources = cursor.fetchall()
+            
+            if not sources:
+                print("No active water sources found.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            print("Available water sources:")
+            for i, source in enumerate(sources, 1):
+                print(f"{i}. {source[1]} (Capacity: {source[4]}/hour)")
+            
+            try:
+                choice = int(input(f"\nSelect source (1-{len(sources)}): ")) - 1
+                if choice < 0 or choice >= len(sources):
+                    print("Invalid selection.")
+                    conn.close()
+                    input("Press Enter to continue...")
+                    return
+                
+                selected_source = sources[choice]
+                source_id = selected_source[0]
+                
+                # Get date
+                date_input = input("Enter date (YYYY-MM-DD) or press Enter for tomorrow: ").strip()
+                if not date_input:
+                    target_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+                else:
+                    try:
+                        datetime.strptime(date_input, '%Y-%m-%d')
+                        target_date = date_input
+                    except ValueError:
+                        print("Invalid date format.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        return
+                
+                # Generate slots
+                start_time = datetime.strptime(selected_source[2], '%H:%M').time()
+                end_time = datetime.strptime(selected_source[3], '%H:%M').time()
+                capacity = selected_source[4]
+                
+                current_time = datetime.combine(datetime.strptime(target_date, '%Y-%m-%d').date(), start_time)
+                end_datetime = datetime.combine(datetime.strptime(target_date, '%Y-%m-%d').date(), end_time)
+                
+                slots_created = 0
+                while current_time < end_datetime:
+                    slot_end = current_time + timedelta(minutes=60)  # 1-hour slots
+                    
+                    if slot_end.time() > end_time:
+                        break
+                    
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO time_slots 
+                        (source_id, slot_date, start_time, end_time, max_households)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (source_id, target_date, current_time.strftime('%H:%M'), 
+                          slot_end.strftime('%H:%M'), capacity))
+                    
+                    if cursor.rowcount > 0:
+                        slots_created += 1
+                    
+                    current_time = slot_end
+                
+                conn.commit()
+                conn.close()
+                
+                print(f"Generated {slots_created} time slots for {selected_source[1]} on {target_date}")
+                
+            except ValueError:
+                print("Invalid input.")
+            
+        except Exception as e:
+            print(f"Error generating time slots: {e}")
+        
+        input("Press Enter to continue...")
+    
