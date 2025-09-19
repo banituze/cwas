@@ -2012,3 +2012,143 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def update_household(self):
+        """Update household information"""
+        clear_screen()
+        print("\n=== UPDATE HOUSEHOLD ===")
+        
+        try:
+            household_id = int(input("Enter Household ID: "))
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT family_name, contact_phone, contact_email, family_size, 
+                       priority_level, address, balance
+                FROM households WHERE household_id = ?
+            ''', (household_id,))
+            
+            current = cursor.fetchone()
+            if not current:
+                print("Household not found.")
+                conn.close()
+                input("Press Enter to continue...")
+                return
+            
+            print(f"Current family name: {current[0]}")
+            new_name = input("New family name (press Enter to keep current): ").strip()
+            if not new_name:
+                new_name = current[0]
+            
+            print(f"Current phone: {current[1]}")
+            new_phone = input("New phone (press Enter to keep current): ").strip()
+            if not new_phone:
+                new_phone = current[1]
+            
+            print(f"Current email: {current[2]}")
+            new_email = input("New email (press Enter to keep current): ").strip()
+            if not new_email:
+                new_email = current[2]
+            
+            print(f"Current family size: {current[3]}")
+            size_input = input("New family size (press Enter to keep current): ").strip()
+            if size_input:
+                try:
+                    new_size = int(size_input)
+                    if new_size <= 0:
+                        print("Invalid family size.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        return
+                except ValueError:
+                    print("Invalid family size.")
+                    conn.close()
+                    input("Press Enter to continue...")
+                    return
+            else:
+                new_size = current[3]
+            
+            print(f"Current priority: {current[4]}")
+            priority_input = input("New priority (high/normal/low, press Enter to keep current): ").strip()
+            if priority_input and priority_input in ['high', 'normal', 'low']:
+                new_priority = priority_input
+            else:
+                new_priority = current[4]
+            
+            print(f"Current address: {current[5]}")
+            new_address = input("New address (press Enter to keep current): ").strip()
+            if not new_address:
+                new_address = current[5]
+            
+            print(f"Current balance: ${current[6]:.2f}")
+            balance_input = input("New balance (press Enter to keep current): ").strip()
+            if balance_input:
+                try:
+                    new_balance = float(balance_input)
+                except ValueError:
+                    print("Invalid balance.")
+                    conn.close()
+                    input("Press Enter to continue...")
+                    return
+            else:
+                new_balance = current[6]
+            
+            cursor.execute('''
+                UPDATE households 
+                SET family_name = ?, contact_phone = ?, contact_email = ?, 
+                    family_size = ?, priority_level = ?, address = ?, balance = ?
+                WHERE household_id = ?
+            ''', (new_name, new_phone, new_email, new_size, new_priority, 
+                  new_address, new_balance, household_id))
+            
+            conn.commit()
+            conn.close()
+            
+            print("Household updated successfully!")
+            
+        except ValueError:
+            print("Invalid Household ID.")
+        except Exception as e:
+            print(f"Error updating household: {e}")
+        
+        input("Press Enter to continue...")
+    
+    def toggle_household_status(self):
+        """Toggle household active/inactive status"""
+        clear_screen()
+        print("\n=== TOGGLE HOUSEHOLD STATUS ===")
+        
+        try:
+            household_id = int(input("Enter Household ID: "))
+            new_status = input("Set status to (active/inactive/suspended): ").strip()
+            
+            if new_status not in ['active', 'inactive', 'suspended']:
+                print("Invalid status.")
+                input("Press Enter to continue...")
+                return
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("UPDATE households SET status = ? WHERE household_id = ?", 
+                          (new_status, household_id))
+            
+            if cursor.rowcount > 0:
+                # Also update user status
+                cursor.execute("UPDATE users SET status = ? WHERE household_id = ?", 
+                              (new_status, household_id))
+                conn.commit()
+                print(f"Household status updated to {new_status}.")
+            else:
+                print("Household not found.")
+            
+            conn.close()
+            
+        except ValueError:
+            print("Invalid Household ID.")
+        except Exception as e:
+            print(f"Error updating status: {e}")
+        
+        input("Press Enter to continue...")
+    
