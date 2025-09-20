@@ -164,7 +164,7 @@ cwas.py
 
 ## Database Schema
 
-###Tables###
+### Tables
 
 * `users` — authentication & roles
 * `households` — family details & balances
