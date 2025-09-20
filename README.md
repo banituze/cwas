@@ -4,16 +4,6 @@ A Python-based scheduling system for managing fair access to shared water source
 
 ---
 
-## Tech Stack
-
-![Python](https://img.shields.io/badge/Python-3.7+-blue?logo=python&logoColor=white)  
-![SQLite](https://img.shields.io/badge/Database-SQLite-blue?logo=sqlite&logoColor=white)  
-![CSV](https://img.shields.io/badge/Export-CSV-green?logo=csv&logoColor=white)  
-![GitHub](https://img.shields.io/badge/Version%20Control-GitHub-black?logo=github)  
-![VS Code](https://img.shields.io/badge/Editor-VS%20Code-blue?logo=visualstudiocode&logoColor=white)  
-
----
-
 ## Table of Contents
 - [Overview](#overview)
 - [Features](#features)
