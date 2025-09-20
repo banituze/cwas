@@ -1,6 +1,7 @@
 # Community Water Access Scheduler (CWAS)
 
-A Python-based scheduling system for managing fair access to shared water sources in communities. CWAS helps distribute limited water equitably, reduce conflicts, and ensure transparent financial tracking.
+A Python-based scheduling system for managing fair access to shared water sources in communities. 
+CWAS helps distribute limited water equitably, reduce conflicts, and ensure transparent financial tracking.
 
 ---
 
