@@ -252,7 +252,7 @@ Default values (editable in `cwas.py`):
 
 * Optimized queries with constraints
 * Works offline (no internet needed)
-* Handles 100–1000 households
+* Designed for community-scale deployments
 * Lightweight single-file implementation
 
 ---
