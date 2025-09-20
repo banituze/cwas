@@ -121,7 +121,7 @@ The database initializes automatically on first run.
 ### Quick Start
 
 ```
-python333 cwas.py
+python3 cwas.py
 ```
 
 ### First-Time Setup
