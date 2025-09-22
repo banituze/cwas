@@ -2361,6 +2361,149 @@ class WaterSchedulerApp:
         
         input("Press Enter to continue...")
     
+    def send_notifications(self):
+        """Send notifications to households"""
+        clear_screen()
+        print("\n=== SEND NOTIFICATIONS ===")
+        
+        while True:
+            print("\n1. Send Individual Notification")
+            print("2. Send Group Notification")
+            print("3. Back to Main Menu")
+            
+            choice = input("\nEnter choice (1-3): ").strip()
+            
+            if choice == '1':
+                try:
+                    # Get household ID
+                    household_id = int(input("Enter Household ID: ").strip())
+                    
+                    # Verify household exists and get user_id
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        SELECT users.user_id, households.family_name 
+                        FROM users 
+                        JOIN households ON users.household_id = households.household_id 
+                        WHERE households.household_id = ?
+                    ''', (household_id,))
+                    
+                    result = cursor.fetchone()
+                    if not result:
+                        print("Household not found.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        continue
+                    
+                    user_id, family_name = result
+                    
+                    # Get notification details
+                    title = input("Notification title: ").strip()
+                    message = input("Notification message: ").strip()
+                    notification_type = input("Notification type (general/reminder/alert/warning): ").strip().lower()
+                    
+                    if not title or not message:
+                        print("Title and message are required.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        continue
+                    
+                    if notification_type not in ['general', 'reminder', 'alert', 'warning']:
+                        notification_type = 'general'
+                    
+                    # Insert notification
+                    cursor.execute('''
+                        INSERT INTO notifications (user_id, household_id, title, message, notification_type)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (user_id, household_id, title, message, notification_type))
+                    
+                    conn.commit()
+                    conn.close()
+                    
+                    print(f"Notification sent to {family_name}!")
+                    
+                except ValueError:
+                    print("Invalid household ID.")
+                except Exception as e:
+                    print(f"Error sending notification: {e}")
+                input("Press Enter to continue...")
+                
+            elif choice == '2':
+                try:
+                    print("\nSelect target group:")
+                    print("1. All Households")
+                    print("2. High Priority Households")
+                    print("3. Normal Priority Households")
+                    print("4. Low Priority Households")
+                    print("5. Active Households")
+                    print("6. Households with Low Balance")
+                    
+                    group_choice = input("\nEnter choice (1-6): ").strip()
+                    
+                    title = input("Notification title: ").strip()
+                    message = input("Notification message: ").strip()
+                    notification_type = input("Notification type (general/reminder/alert/warning): ").strip().lower()
+                    
+                    if not title or not message:
+                        print("Title and message are required.")
+                        input("Press Enter to continue...")
+                        continue
+                    
+                    if notification_type not in ['general', 'reminder', 'alert', 'warning']:
+                        notification_type = 'general'
+                    
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
+                    
+                    query = '''
+                        SELECT users.user_id, households.household_id 
+                        FROM users 
+                        JOIN households ON users.household_id = households.household_id 
+                        WHERE 1=1
+                    '''
+                    
+                    if group_choice == '2':
+                        query += " AND households.priority_level = 'high'"
+                    elif group_choice == '3':
+                        query += " AND households.priority_level = 'normal'"
+                    elif group_choice == '4':
+                        query += " AND households.priority_level = 'low'"
+                    elif group_choice == '5':
+                        query += " AND households.status = 'active'"
+                    elif group_choice == '6':
+                        query += " AND households.balance < 10.00"
+                    
+                    cursor.execute(query)
+                    recipients = cursor.fetchall()
+                    
+                    if not recipients:
+                        print("No matching households found.")
+                        conn.close()
+                        input("Press Enter to continue...")
+                        continue
+                    
+                    # Insert notifications for all recipients
+                    for user_id, household_id in recipients:
+                        cursor.execute('''
+                            INSERT INTO notifications (user_id, household_id, title, message, notification_type)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (user_id, household_id, title, message, notification_type))
+                    
+                    conn.commit()
+                    conn.close()
+                    
+                    print(f"Notification sent to {len(recipients)} households!")
+                    
+                except Exception as e:
+                    print(f"Error sending group notification: {e}")
+                input("Press Enter to continue...")
+                
+            elif choice == '3':
+                break
+            else:
+                print("Invalid choice.")
+                input("Press Enter to continue...")
+
     def toggle_household_status(self):
         """Toggle household active/inactive status"""
         clear_screen()
