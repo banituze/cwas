@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Community Water Access Scheduler
+Main Application Entry Point with Complete Functionality
 """
 
 import os
@@ -1844,6 +1845,71 @@ class WaterSchedulerApp:
         except Exception as e:
             print(f"Error adding source: {e}")
         
+        input("Press Enter to continue...")
+    
+    def toggle_source_status(self):
+        """Toggle or set water source status"""
+        clear_screen()
+        print("\n=== TOGGLE SOURCE STATUS ===")
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            # List sources
+            cursor.execute('''
+                SELECT source_id, source_name, status
+                FROM water_sources
+                ORDER BY source_name
+            ''')
+            rows = cursor.fetchall()
+            if not rows:
+                conn.close()
+                print("No water sources found.")
+                input("Press Enter to continue...")
+                return
+            print(f"{'ID':<4} {'Name':<22} {'Status':<12}")
+            print("-" * 40)
+            for r in rows:
+                print(f"{r[0]:<4} {r[1]:<22} {r[2]:<12}")
+            try:
+                source_id = int(input("\nEnter Source ID: ").strip())
+            except ValueError:
+                conn.close()
+                print("Invalid Source ID.")
+                input("Press Enter to continue...")
+                return
+            # Get current status
+            cursor.execute("SELECT status FROM water_sources WHERE source_id = ?", (source_id,))
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                print("Source not found.")
+                input("Press Enter to continue...")
+                return
+            current_status = row[0]
+            prompt = "Set status to (active/inactive/maintenance) [toggle]: "
+            desired = input(prompt).strip().lower()
+            valid_statuses = ['active', 'inactive', 'maintenance']
+            if desired:
+                if desired not in valid_statuses:
+                    conn.close()
+                    print("Invalid status.")
+                    input("Press Enter to continue...")
+                    return
+                new_status = desired
+            else:
+                # Toggle behavior: active <-> inactive, maintenance -> active
+                if current_status == 'active':
+                    new_status = 'inactive'
+                elif current_status == 'inactive':
+                    new_status = 'active'
+                else:
+                    new_status = 'active'
+            cursor.execute("UPDATE water_sources SET status = ? WHERE source_id = ?", (new_status, source_id))
+            conn.commit()
+            conn.close()
+            print(f"Source status updated: {current_status} -> {new_status}")
+        except Exception as e:
+            print(f"Error updating source status: {e}")
         input("Press Enter to continue...")
     
     def view_daily_summary(self):
