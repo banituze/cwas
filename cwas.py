@@ -15,6 +15,7 @@ import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import time
 
 def clear_screen():
     """Clear terminal screen for better UX"""
@@ -36,8 +37,16 @@ class DatabaseManager:
         self.init_database()
     
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 8000")
+            conn.execute("PRAGMA journal_mode = WAL")
+        except Exception:
+            pass
+        return conn
     
+
     def init_database(self):
         """Initialize database with user authentication"""
         conn = self.get_connection()
@@ -141,6 +150,7 @@ class DatabaseManager:
                 notes TEXT,
                 approval_date DATETIME,
                 receipt_number VARCHAR(50),
+                payment_method VARCHAR(20),
                 FOREIGN KEY (household_id) REFERENCES households(household_id),
                 FOREIGN KEY (slot_id) REFERENCES time_slots(slot_id),
                 CHECK (booking_status IN ('pending', 'approved', 'denied', 'cancelled', 'completed')),
@@ -182,6 +192,15 @@ class DatabaseManager:
                 FOREIGN KEY (booking_id) REFERENCES bookings(booking_id)
             )
         ''')
+        
+        # Lightweight migration: ensure bookings.payment_method exists
+        try:
+            cursor.execute("PRAGMA table_info(bookings);")
+            cols = [r[1] for r in cursor.fetchall()]
+            if 'payment_method' not in cols:
+                cursor.execute("ALTER TABLE bookings ADD COLUMN payment_method VARCHAR(20)")
+        except Exception:
+            pass
         
         conn.commit()
         conn.close()
@@ -914,10 +933,27 @@ class WaterSchedulerApp:
             print(f"Source: {selected_slot[1]}")
             print(f"Time: {selected_slot[3]}-{selected_slot[4]}")
             print(f"Estimated cost: ${cost:.2f}")
-            
+
+            # Payment method selection
+            # Payment method: only two options
+            while True:
+                print("\nBefore Confirming booking, Payment Options:")
+                print("1. Mobile Payment")
+                print("2. Cash Payment")
+                pm_choice = input("Select payment method (1-2): ").strip()
+                if pm_choice == '1':
+                    payment_method = 'mobile'
+                    print("Mobile payment selected.")
+                    break
+                if pm_choice == '2':
+                    payment_method = 'cash'
+                    print("Cash payment selected.")
+                    break
+                print("Invalid selection. Please choose 1 or 2.")
+
             confirm = input("\nConfirm booking? (y/n): ").lower()
             if confirm == 'y':
-                booking_id = self.create_booking(slot_id, water_amount, cost)
+                booking_id = self.create_booking(slot_id, water_amount, cost, payment_method)
                 if booking_id:
                     print(f"\nBooking request submitted! Booking ID: {booking_id}")
                     print("Your booking is pending approval.")
@@ -961,36 +997,58 @@ class WaterSchedulerApp:
             print(f"Error getting available slots: {e}")
             return []
     
-    def create_booking(self, slot_id, water_amount, estimated_cost):
+    def create_booking(self, slot_id, water_amount, estimated_cost, payment_method):
         """Create new booking"""
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO bookings (household_id, slot_id, water_amount_collected, amount_charged)
-                VALUES (?, ?, ?, ?)
-            ''', (self.current_user['household_id'], slot_id, water_amount, estimated_cost))
-            
-            booking_id = cursor.lastrowid
-            receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
-            
-            cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?",
-                          (receipt_number, booking_id))
-            
-            conn.commit()
-            conn.close()
-            return booking_id
-            
-        except sqlite3.IntegrityError as e:
-            if 'UNIQUE constraint failed: bookings.household_id, bookings.slot_id' in str(e):
-                print("You already have a booking for this time slot.")
-            else:
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('BEGIN IMMEDIATE')
+                cursor.execute('''
+                    INSERT INTO bookings (household_id, slot_id, water_amount_collected, amount_charged, payment_method)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (self.current_user['household_id'], slot_id, water_amount, estimated_cost, payment_method))
+                booking_id = cursor.lastrowid
+                receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
+                cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?",
+                              (receipt_number, booking_id))
+                conn.commit()
+                conn.close()
+                return booking_id
+            except sqlite3.OperationalError as e:
+                # Handle database is locked with retries
+                if 'database is locked' in str(e).lower() and attempt < max_attempts:
+                    try:
+                        conn.rollback()
+                        conn.close()
+                    except Exception:
+                        pass
+                    time.sleep(0.5 * attempt)
+                    continue
                 print(f"Database error creating booking: {e}")
-            return None
-        except Exception as e:
-            print(f"Error creating booking: {e}")
-            return None
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                return None
+            except sqlite3.IntegrityError as e:
+                if 'UNIQUE constraint failed: bookings.household_id, bookings.slot_id' in str(e):
+                    print("You already have a booking for this time slot.")
+                else:
+                    print(f"Database error creating booking: {e}")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                return None
+            except Exception as e:
+                print(f"Error creating booking: {e}")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                return None
     
     def view_my_bookings(self):
         """View household bookings with status"""
@@ -1369,26 +1427,27 @@ class WaterSchedulerApp:
                     ''', (booking_id,))
                     # Create receipt if missing
                     cursor.execute('''
-                        SELECT b.household_id, b.amount_charged, b.water_amount_collected, b.receipt_number
+                        SELECT b.household_id, b.amount_charged, b.water_amount_collected, b.receipt_number, b.payment_method
                         FROM bookings b
                         WHERE b.booking_id = ?
                     ''', (booking_id,))
                     rec = cursor.fetchone()
                     if rec:
-                        household_id, amount, water_amount, receipt_number = rec
-                        # Deduct funds from household balance upon approval
-                        cursor.execute('''
-                            UPDATE households
-                            SET balance = balance - ?
-                            WHERE household_id = ?
-                        ''', (amount or 0.0, household_id))
+                        household_id, amount, water_amount, receipt_number, payment_method = rec
+                        # Deduct funds only for mobile payments (cash handled offline)
+                        if (payment_method or 'cash') == 'mobile':
+                            cursor.execute('''
+                                UPDATE households
+                                SET balance = balance - ?
+                                WHERE household_id = ?
+                            ''', (amount or 0.0, household_id))
                         if not receipt_number:
                             receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
                             cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?", (receipt_number, booking_id))
                         cursor.execute('''
-                            INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (receipt_number, household_id, booking_id, amount or 0.0, water_amount or 0))
+                            INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount, payment_method)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (receipt_number, household_id, booking_id, amount or 0.0, water_amount or 0, (payment_method or 'account_balance')))
                 
                 # Create notification
                 cursor.execute("SELECT household_id FROM bookings WHERE booking_id = ?", (booking_id,))
@@ -1845,6 +1904,129 @@ class WaterSchedulerApp:
         except Exception as e:
             print(f"Error adding source: {e}")
         
+        input("Press Enter to continue...")
+    
+    def update_water_source(self):
+        """Update an existing water source"""
+        clear_screen()
+        print("\n=== UPDATE WATER SOURCE ===")
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            # List sources
+            cursor.execute('''
+                SELECT source_id, source_name, source_type, location, capacity_per_hour,
+                       operating_start_time, operating_end_time, status, price_per_100L
+                FROM water_sources
+                ORDER BY source_name
+            ''')
+            sources = cursor.fetchall()
+            if not sources:
+                conn.close()
+                print("No water sources found.")
+                input("Press Enter to continue...")
+                return
+            print(f"{'ID':<4} {'Name':<20} {'Type':<10} {'Capacity':<10} {'Hours':<15} {'Price':<8} {'Status':<10}")
+            print("-" * 80)
+            for s in sources:
+                hours = f"{s[5]}-{s[6]}"
+                price = f"${s[8]:.2f}"
+                print(f"{s[0]:<4} {s[1]:<20} {s[2]:<10} {s[4]:<10} {hours:<15} {price:<8} {s[7]:<10}")
+            try:
+                source_id = int(input("\nEnter Source ID to update: ").strip())
+            except ValueError:
+                conn.close()
+                print("Invalid Source ID.")
+                input("Press Enter to continue...")
+                return
+            cursor.execute('''
+                SELECT source_name, source_type, location, capacity_per_hour,
+                       operating_start_time, operating_end_time, status, price_per_100L
+                FROM water_sources WHERE source_id = ?
+            ''', (source_id,))
+            cur = cursor.fetchone()
+            if not cur:
+                conn.close()
+                print("Source not found.")
+                input("Press Enter to continue...")
+                return
+            print(f"\nCurrent name: {cur[0]}")
+            new_name = input("New name (Enter to keep): ").strip() or cur[0]
+            print(f"Current type: {cur[1]} (choices: Well/Borehole/Tap/Spring/Tank)")
+            new_type = input("New type (Enter to keep): ").strip() or cur[1]
+            if new_type not in ['Well', 'Borehole', 'Tap', 'Spring', 'Tank']:
+                new_type = cur[1]
+            print(f"Current location: {cur[2]}")
+            new_location = input("New location (Enter to keep): ").strip() or cur[2]
+            print(f"Current capacity/hour: {cur[3]}")
+            cap_in = input("New capacity/hour (Enter to keep): ").strip()
+            if cap_in:
+                try:
+                    new_capacity = int(cap_in)
+                    if new_capacity <= 0:
+                        print("Invalid capacity; keeping current.")
+                        new_capacity = cur[3]
+                except ValueError:
+                    print("Invalid capacity; keeping current.")
+                    new_capacity = cur[3]
+            else:
+                new_capacity = cur[3]
+            print(f"Current opening time (HH:MM): {cur[4]}")
+            start_in = input("New opening time (HH:MM, Enter to keep): ").strip()
+            if start_in:
+                try:
+                    datetime.strptime(start_in, '%H:%M')
+                    new_start = start_in
+                except ValueError:
+                    print("Invalid time; keeping current.")
+                    new_start = cur[4]
+            else:
+                new_start = cur[4]
+            print(f"Current closing time (HH:MM): {cur[5]}")
+            end_in = input("New closing time (HH:MM, Enter to keep): ").strip()
+            if end_in:
+                try:
+                    datetime.strptime(end_in, '%H:%M')
+                    new_end = end_in
+                except ValueError:
+                    print("Invalid time; keeping current.")
+                    new_end = cur[5]
+            else:
+                new_end = cur[5]
+            # Ensure logical time ordering
+            try:
+                if datetime.strptime(new_end, '%H:%M') <= datetime.strptime(new_start, '%H:%M'):
+                    print("Closing time must be after opening time; keeping current times.")
+                    new_start, new_end = cur[4], cur[5]
+            except Exception:
+                new_start, new_end = cur[4], cur[5]
+            print(f"Current price per 100L: ${cur[7]:.2f}")
+            price_in = input("New price per 100L ($, Enter to keep): ").strip()
+            if price_in:
+                try:
+                    new_price = float(price_in)
+                except ValueError:
+                    print("Invalid price; keeping current.")
+                    new_price = cur[7]
+            else:
+                new_price = cur[7]
+            print(f"Current status: {cur[6]} (active/inactive/maintenance)")
+            status_in = input("New status (Enter to keep): ").strip().lower()
+            if status_in in ['active', 'inactive', 'maintenance']:
+                new_status = status_in
+            else:
+                new_status = cur[6]
+            cursor.execute('''
+                UPDATE water_sources
+                SET source_name = ?, source_type = ?, location = ?, capacity_per_hour = ?,
+                    operating_start_time = ?, operating_end_time = ?, status = ?, price_per_100L = ?
+                WHERE source_id = ?
+            ''', (new_name, new_type, new_location, new_capacity, new_start, new_end, new_status, new_price, source_id))
+            conn.commit()
+            conn.close()
+            print("Water source updated successfully.")
+        except Exception as e:
+            print(f"Error updating water source: {e}")
         input("Press Enter to continue...")
     
     def toggle_source_status(self):
