@@ -800,20 +800,81 @@ class WaterSchedulerApp:
                 end_date = datetime.now().strftime('%Y-%m-%d')
             if not start_date:
                 start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            
+            # Validate dates
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                print("Invalid date format. Please use YYYY-MM-DD")
+                input("Press Enter to continue...")
+                return
+
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
+            print(f"\nPeriod: {start_date} to {end_date}")
+            
+            # General statistics
+            cursor.execute('''
+                SELECT 
+                    COUNT(b.booking_id) as total_bookings,
+                    SUM(CASE WHEN b.booking_status = 'approved' THEN 1 ELSE 0 END) as approved_bookings,
+                    SUM(b.water_amount_collected) as total_water,
+                    SUM(b.amount_charged) as total_revenue
+                FROM bookings b
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                WHERE ts.slot_date BETWEEN ? AND ?
+            ''', (start_date, end_date))
+            
+            stats = cursor.fetchone()
+            if stats:
+                print("\n-- Overall Statistics --")
+                print(f"Total Bookings: {stats[0] or 0}")
+                print(f"Approved Bookings: {stats[1] or 0}")
+                print(f"Total Water Collected: {stats[2] or 0} L")
+                print(f"Total Revenue: ${stats[3] or 0:.2f}")
+
             # Revenue by date
             cursor.execute('''
-                SELECT ts.slot_date, SUM(b.amount_charged) as revenue
+                SELECT ts.slot_date, 
+                       COUNT(b.booking_id) as bookings,
+                       SUM(b.water_amount_collected) as water_amount,
+                       SUM(b.amount_charged) as revenue
                 FROM bookings b
                 JOIN time_slots ts ON b.slot_id = ts.slot_id
                 WHERE ts.slot_date BETWEEN ? AND ? AND b.booking_status = 'approved'
-                GROUP BY ts.slot_date ORDER BY ts.slot_date
+                GROUP BY ts.slot_date 
+                ORDER BY ts.slot_date
             ''', (start_date, end_date))
+            
             by_date = cursor.fetchall()
+            if by_date:
+                print("\n-- Revenue by Date --")
+                print(f"{'Date':<12} {'Bookings':<10} {'Water(L)':<10} {'Revenue':<10}")
+                print("-" * 45)
+                total_revenue = 0
+                total_water = 0
+                total_bookings = 0
+                for r in by_date:
+                    revenue = r[3] or 0
+                    water = r[2] or 0
+                    bookings = r[1] or 0
+                    total_revenue += revenue
+                    total_water += water
+                    total_bookings += bookings
+                    print(f"{r[0]:<12} {bookings:<10} {water:<10} ${revenue:.2f}")
+                print("-" * 45)
+                print(f"{'TOTAL':<12} {total_bookings:<10} {total_water:<10} ${total_revenue:.2f}")
+            else:
+                print("\nNo revenue data found for this period.")
+
             # Revenue by source
             cursor.execute('''
-                SELECT ws.source_name, SUM(b.amount_charged) as revenue
+                SELECT ws.source_name, 
+                       COUNT(b.booking_id) as bookings,
+                       SUM(b.water_amount_collected) as water_amount,
+                       SUM(b.amount_charged) as revenue
                 FROM bookings b
                 JOIN time_slots ts ON b.slot_id = ts.slot_id
                 JOIN water_sources ws ON ts.source_id = ws.source_id
@@ -821,21 +882,46 @@ class WaterSchedulerApp:
                 GROUP BY ws.source_id, ws.source_name
                 ORDER BY revenue DESC
             ''', (start_date, end_date))
+            
             by_source = cursor.fetchall()
-            conn.close()
-            print(f"\nPeriod: {start_date} to {end_date}")
-            if by_date:
-                print("\n-- Revenue by Date --")
-                print(f"{'Date':<12} {'Revenue':<10}")
-                print("-" * 24)
-                for r in by_date:
-                    print(f"{r[0]:<12} ${r[1] or 0:.2f}")
             if by_source:
                 print("\n-- Revenue by Source --")
-                print(f"{'Source':<20} {'Revenue':<10}")
-                print("-" * 32)
+                print(f"{'Source':<20} {'Bookings':<10} {'Water(L)':<10} {'Revenue':<10}")
+                print("-" * 55)
                 for r in by_source:
-                    print(f"{r[0]:<20} ${r[1] or 0:.2f}")
+                    revenue = r[3] or 0
+                    water = r[2] or 0
+                    bookings = r[1] or 0
+                    print(f"{r[0]:<20} {bookings:<10} {water:<10} ${revenue:.2f}")
+
+            # Top households by usage
+            cursor.execute('''
+                SELECT h.family_name,
+                       COUNT(b.booking_id) as bookings,
+                       SUM(b.water_amount_collected) as water_amount,
+                       SUM(b.amount_charged) as total_spent
+                FROM bookings b
+                JOIN households h ON b.household_id = h.household_id
+                JOIN time_slots ts ON b.slot_id = ts.slot_id
+                WHERE ts.slot_date BETWEEN ? AND ? AND b.booking_status = 'approved'
+                GROUP BY h.household_id, h.family_name
+                ORDER BY water_amount DESC
+                LIMIT 5
+            ''', (start_date, end_date))
+            
+            top_households = cursor.fetchall()
+            if top_households:
+                print("\n-- Top 5 Households by Usage --")
+                print(f"{'Family':<20} {'Bookings':<10} {'Water(L)':<10} {'Spent':<10}")
+                print("-" * 55)
+                for r in top_households:
+                    spent = r[3] or 0
+                    water = r[2] or 0
+                    bookings = r[1] or 0
+                    print(f"{r[0]:<20} {bookings:<10} {water:<10} ${spent:.2f}")
+            
+            conn.close()
+
         except Exception as e:
             print(f"Error generating financial report: {e}")
         input("Press Enter to continue...")
