@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Community Water Access Scheduler
-Main Application Entry Point with Complete Functionality
 """
 
 import os
