@@ -1016,7 +1016,6 @@ class WaterSchedulerApp:
             print(f"Estimated cost: ${cost:.2f}")
 
             # Payment method selection
-            # Payment method: only two options
             while True:
                 print("\nBefore Confirming booking, Payment Options:")
                 print("1. Mobile Payment")
