@@ -269,7 +269,7 @@ For unresolved issues, open a GitHub issue with details.
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](https://github.com/banituze/cwas/blob/master/LICENSE) file for details.
+This project is licensed under the [MIT License](https://github.com/banituze/cwas/blob/master/LICENSE) — see the [LICENSE](https://github.com/banituze/cwas/blob/master/LICENSE) file for details.
 
 ---
 
