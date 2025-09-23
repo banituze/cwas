@@ -368,9 +368,10 @@ class AuthenticationManager:
                 input("Press Enter to continue...")
                 return None
             
-            # Update last login
+            # Update last login with local time
+            current_time = datetime.now().replace(tzinfo=None)
             cursor.execute("UPDATE users SET last_login = ? WHERE user_id = ?", 
-                          (datetime.now().isoformat(' '), user_id))
+                          (current_time.isoformat(' '), user_id))
             conn.commit()
             conn.close()
             
@@ -1016,6 +1017,7 @@ class WaterSchedulerApp:
             print(f"Estimated cost: ${cost:.2f}")
 
             # Payment method selection
+            # Payment method: only two options
             while True:
                 print("\nBefore Confirming booking, Payment Options:")
                 print("1. Mobile Payment")
