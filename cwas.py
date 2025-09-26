@@ -8,9 +8,22 @@ import hashlib
 import secrets
 import sqlite3
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 import time
+
+# ---- Timezone utilities ----
+def now_local():
+    """Return current time in the system's local timezone as an aware datetime."""
+    return datetime.now().astimezone()
+
+def today_local_date_str():
+    """Return today's date in local timezone as YYYY-MM-DD string."""
+    return now_local().strftime('%Y-%m-%d')
+
+def timestamp_local_str():
+    """Return local timestamp suitable for filenames: YYYYMMDD_HHMMSS."""
+    return now_local().strftime('%Y%m%d_%H%M%S')
 
 def clear_screen():
     """Clear terminal screen for better UX"""
@@ -368,8 +381,8 @@ class AuthenticationManager:
                 input("Press Enter to continue...")
                 return None
             
-            # Update last login with local time
-            current_time = datetime.now().replace(tzinfo=None)
+            # Update last login with local timezone time (stored as local string)
+            current_time = now_local()
             cursor.execute("UPDATE users SET last_login = ? WHERE user_id = ?", 
                           (current_time.isoformat(' '), user_id))
             conn.commit()
@@ -793,9 +806,9 @@ class WaterSchedulerApp:
             start_date = input("Start date (YYYY-MM-DD) [30 days ago]: ").strip()
             end_date = input("End date (YYYY-MM-DD) [today]: ").strip()
             if not end_date:
-                end_date = datetime.now().strftime('%Y-%m-%d')
+                end_date = today_local_date_str()
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+                start_date = (now_local() - timedelta(days=30)).strftime('%Y-%m-%d')
             
             # Validate dates
             try:
@@ -927,7 +940,7 @@ class WaterSchedulerApp:
         print("\n=== BACKUP DATABASE ===")
         try:
             import shutil
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = timestamp_local_str()
             backup_dir = 'backups'
             if not os.path.exists(backup_dir):
                 os.makedirs(backup_dir)
@@ -959,8 +972,8 @@ class WaterSchedulerApp:
         print("Available dates for booking:")
         dates = []
         for i in range(7):
-            date = (datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d')
-            day_name = (datetime.now() + timedelta(days=i)).strftime('%A')
+            date = (now_local() + timedelta(days=i)).strftime('%Y-%m-%d')
+            day_name = (now_local() + timedelta(days=i)).strftime('%A')
             dates.append(date)
             print(f"{i+1}. {date} ({day_name})")
         
@@ -1092,7 +1105,7 @@ class WaterSchedulerApp:
                     VALUES (?, ?, ?, ?, ?)
                 ''', (self.current_user['household_id'], slot_id, water_amount, estimated_cost, payment_method))
                 booking_id = cursor.lastrowid
-                receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
+                receipt_number = f"WS{now_local().strftime('%Y%m%d')}{booking_id:04d}"
                 cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?",
                               (receipt_number, booking_id))
                 conn.commit()
@@ -1498,7 +1511,7 @@ class WaterSchedulerApp:
                     UPDATE bookings 
                     SET booking_status = ?, approval_date = ?
                     WHERE booking_id = ?
-                ''', (new_status, datetime.now().isoformat(' '), booking_id))
+                ''', (new_status, now_local().isoformat(' '), booking_id))
                 
                 # Update slot bookings count if approved
                 if action == 'approve':
@@ -1524,7 +1537,7 @@ class WaterSchedulerApp:
                                 WHERE household_id = ?
                             ''', (amount or 0.0, household_id))
                         if not receipt_number:
-                            receipt_number = f"WS{datetime.now().strftime('%Y%m%d')}{booking_id:04d}"
+                            receipt_number = f"WS{now_local().strftime('%Y%m%d')}{booking_id:04d}"
                             cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?", (receipt_number, booking_id))
                         cursor.execute('''
                             INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount, payment_method)
@@ -1600,7 +1613,7 @@ class WaterSchedulerApp:
                 # Get date
                 date_input = input("Enter date (YYYY-MM-DD) or press Enter for tomorrow: ").strip()
                 if not date_input:
-                    target_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+                    target_date = (now_local() + timedelta(days=1)).strftime('%Y-%m-%d')
                 else:
                     try:
                         datetime.strptime(date_input, '%Y-%m-%d')
@@ -1679,7 +1692,7 @@ class WaterSchedulerApp:
         """Generate daily usage report"""
         date = input("Enter date (YYYY-MM-DD) or press Enter for today: ").strip()
         if not date:
-            date = datetime.now().strftime('%Y-%m-%d')
+            date = today_local_date_str()
         
         try:
             conn = self.db.get_connection()
@@ -1777,7 +1790,7 @@ class WaterSchedulerApp:
             if not os.path.exists('exports'):
                 os.makedirs('exports')
             
-            filename = f"exports/bookings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename = f"exports/bookings_{timestamp_local_str()}.csv"
             
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -1804,7 +1817,7 @@ class WaterSchedulerApp:
             conn.close()
             if not os.path.exists('exports'):
                 os.makedirs('exports')
-            filename = f"exports/households_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename = f"exports/households_{timestamp_local_str()}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(['Household ID', 'Family Name', 'Phone', 'Email', 'Family Size', 'Priority', 'Address', 'Balance', 'Status'])
@@ -1829,7 +1842,7 @@ class WaterSchedulerApp:
             conn.close()
             if not os.path.exists('exports'):
                 os.makedirs('exports')
-            filename = f"exports/financial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename = f"exports/financial_{timestamp_local_str()}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(['Date', 'Revenue'])
@@ -1857,7 +1870,7 @@ class WaterSchedulerApp:
             conn.close()
             if not os.path.exists('exports'):
                 os.makedirs('exports')
-            filename = f"exports/usage_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filename = f"exports/usage_{timestamp_local_str()}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(['Source', 'Bookings', 'Total Water (L)'])
