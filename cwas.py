@@ -1568,42 +1568,81 @@ class WaterSchedulerApp:
                             input("Press Enter to continue...")
                             return
 
-                cursor.execute('''
-                    UPDATE bookings 
-                    SET booking_status = ?, approval_date = ?
-                    WHERE booking_id = ?
-                ''', (new_status, now_local().isoformat(' '), booking_id))
-
-                # Update slot bookings count if approved
+                # Perform approval/denial with capacity-safe updates
                 if action == 'approve':
-                    cursor.execute('''
-                        UPDATE time_slots 
-                        SET current_bookings = current_bookings + 1
-                        WHERE slot_id = (SELECT slot_id FROM bookings WHERE booking_id = ?)
-                    ''', (booking_id,))
-                    # Create receipt if missing
-                    cursor.execute('''
-                        SELECT b.household_id, b.amount_charged, b.water_amount_collected, b.receipt_number, b.payment_method
-                        FROM bookings b
-                        WHERE b.booking_id = ?
-                    ''', (booking_id,))
-                    rec = cursor.fetchone()
-                    if rec:
-                        household_id, amount, water_amount, receipt_number, payment_method = rec
-                        # Deduct funds only for mobile payments (cash handled offline)
-                        if (payment_method or 'cash') == 'mobile':
-                            cursor.execute('''
-                                UPDATE households
-                                SET balance = balance - ?
-                                WHERE household_id = ?
-                            ''', (amount or 0.0, household_id))
-                        if not receipt_number:
-                            receipt_number = f"WS{now_local().strftime('%Y%m%d')}{booking_id:04d}"
-                            cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?", (receipt_number, booking_id))
+                    try:
+                        cursor.execute('BEGIN IMMEDIATE')
+                        # Fetch slot info for this booking
                         cursor.execute('''
-                            INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount, payment_method)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ''', (receipt_number, household_id, booking_id, amount or 0.0, water_amount or 0, (payment_method or 'account_balance')))
+                            SELECT ts.slot_id, ts.current_bookings, ts.max_households
+                            FROM bookings b
+                            JOIN time_slots ts ON b.slot_id = ts.slot_id
+                            WHERE b.booking_id = ?
+                        ''', (booking_id,))
+                        slot_row = cursor.fetchone()
+                        if not slot_row:
+                            raise Exception('Related time slot not found for this booking.')
+                        slot_id, current_bookings, max_households = slot_row
+
+                        if (current_bookings or 0) >= (max_households or 0):
+                            cursor.execute('ROLLBACK')
+                            print("Cannot approve: selected time slot is full.")
+                            conn.close()
+                            input("Press Enter to continue...")
+                            return
+
+                        cursor.execute('''
+                            UPDATE bookings 
+                            SET booking_status = 'approved', approval_date = ?
+                            WHERE booking_id = ?
+                        ''', (now_local().isoformat(' '), booking_id))
+
+                        cursor.execute('''
+                            UPDATE time_slots 
+                            SET current_bookings = current_bookings + 1,
+                                status = CASE WHEN current_bookings + 1 >= max_households THEN 'full' ELSE status END
+                            WHERE slot_id = ?
+                        ''', (slot_id,))
+
+                        # Create receipt if missing and handle payment
+                        cursor.execute('''
+                            SELECT b.household_id, b.amount_charged, b.water_amount_collected, b.receipt_number, b.payment_method
+                            FROM bookings b
+                            WHERE b.booking_id = ?
+                        ''', (booking_id,))
+                        rec = cursor.fetchone()
+                        if rec:
+                            household_id, amount, water_amount, receipt_number, payment_method = rec
+                            if (payment_method or 'cash') == 'mobile':
+                                cursor.execute('''
+                                    UPDATE households
+                                    SET balance = balance - ?
+                                    WHERE household_id = ?
+                                ''', (amount or 0.0, household_id))
+                            if not receipt_number:
+                                receipt_number = f"WS{now_local().strftime('%Y%m%d')}{booking_id:04d}"
+                                cursor.execute("UPDATE bookings SET receipt_number = ? WHERE booking_id = ?", (receipt_number, booking_id))
+                            cursor.execute('''
+                                INSERT OR IGNORE INTO receipts (receipt_number, household_id, booking_id, amount, water_amount, payment_method)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (receipt_number, household_id, booking_id, amount or 0.0, water_amount or 0, (payment_method or 'account_balance')))
+
+                        conn.commit()
+                    except Exception as e:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        conn.close()
+                        print(f"Approval failed: {e}")
+                        input("Press Enter to continue...")
+                        return
+                else:
+                    cursor.execute('''
+                        UPDATE bookings 
+                        SET booking_status = 'denied', approval_date = ?
+                        WHERE booking_id = ?
+                    ''', (now_local().isoformat(' '), booking_id))
                 
                 # Create notification
                 cursor.execute("SELECT household_id FROM bookings WHERE booking_id = ?", (booking_id,))
