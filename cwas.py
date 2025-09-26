@@ -1000,14 +1000,22 @@ class WaterSchedulerApp:
             return
         
         print(f"\nAvailable slots for {selected_date}:")
-        print(f"{'#':<3} {'Source':<20} {'Time':<15} {'Price/100L':<12} {'Available':<10}")
-        print("-" * 65)
+        print(f"{'#':<3} {'Source':<20} {'Time':<15} {'Price/100L':<12} {'Remain(L)':<10}")
+        print("-" * 70)
         
         for i, slot in enumerate(available_slots):
             time_range = f"{slot[3]}-{slot[4]}"
-            available_count = slot[6] - slot[5]
+            # fallback to per-hour capacity if remaining not included
+            remaining_liters = slot[-1] if len(slot) >= 11 else None
+            if remaining_liters is None:
+                remaining_display = "?"
+            else:
+                try:
+                    remaining_display = max(0, int(remaining_liters))
+                except Exception:
+                    remaining_display = "?"
             price = f"${slot[8]:.2f}"
-            print(f"{i+1:<3} {slot[1]:<20} {time_range:<15} {price:<12} {available_count:<10}")
+            print(f"{i+1:<3} {slot[1]:<20} {time_range:<15} {price:<12} {remaining_display:<10}")
         
         try:
             slot_choice = int(input(f"\nSelect slot (1-{len(available_slots)}): ")) - 1
@@ -1021,6 +1029,16 @@ class WaterSchedulerApp:
             
             # Estimate cost
             water_amount = int(input("Estimated water amount (liters): "))
+            # If remaining liters info is available, enforce it
+            if len(selected_slot) >= 11:
+                try:
+                    remaining_liters = max(0, int(selected_slot[10] or 0))
+                except Exception:
+                    remaining_liters = None
+                if remaining_liters is not None and water_amount > remaining_liters:
+                    print(f"Requested {water_amount}L exceeds remaining {remaining_liters}L for this slot.")
+                    input("Press Enter to continue...")
+                    return
             cost = (water_amount / 100) * selected_slot[8]
             
             print(f"\nBooking Summary:")
@@ -1072,15 +1090,33 @@ class WaterSchedulerApp:
             priority = cursor.fetchone()[0]
             
             cursor.execute('''
-                SELECT ts.slot_id, ws.source_name, ts.slot_date, ts.start_time, ts.end_time,
-                       ts.current_bookings, ts.max_households, ws.location, ws.price_per_100L,
-                       ws.priority_access
+                SELECT 
+                    ts.slot_id,
+                    ws.source_name,
+                    ts.slot_date,
+                    ts.start_time,
+                    ts.end_time,
+                    ts.current_bookings,
+                    ts.max_households,
+                    ws.location,
+                    ws.price_per_100L,
+                    ws.priority_access,
+                    (
+                        ws.capacity_per_hour - COALESCE(
+                            (
+                                SELECT SUM(b.water_amount_collected)
+                                FROM bookings b
+                                WHERE b.slot_id = ts.slot_id
+                                  AND b.booking_status IN ('pending','approved')
+                            ), 0
+                        )
+                    ) AS remaining_liters
                 FROM time_slots ts
                 JOIN water_sources ws ON ts.source_id = ws.source_id
-                WHERE ts.slot_date = ? AND ts.status = 'available' 
-                AND ts.current_bookings < ts.max_households
-                AND ws.status = 'active'
-                AND (ws.priority_access = 'all' OR ws.priority_access LIKE ?)
+                WHERE ts.slot_date = ?
+                  AND ts.status = 'available'
+                  AND ws.status = 'active'
+                  AND (ws.priority_access = 'all' OR ws.priority_access LIKE ?)
                 ORDER BY ws.source_name, ts.start_time
             ''', (date, f'%{priority}%'))
             
@@ -1506,13 +1542,38 @@ class WaterSchedulerApp:
                     return
                 
                 new_status = 'approved' if action == 'approve' else 'denied'
-                
+
+                # If approving, enforce remaining liters capacity before updating
+                if action == 'approve':
+                    cursor.execute('''
+                        SELECT ws.capacity_per_hour, b.water_amount_collected, b.slot_id
+                        FROM bookings b
+                        JOIN time_slots ts ON b.slot_id = ts.slot_id
+                        JOIN water_sources ws ON ts.source_id = ws.source_id
+                        WHERE b.booking_id = ?
+                    ''', (booking_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        capacity_per_hour, requested_liters, slot_id = row
+                        cursor.execute('''
+                            SELECT COALESCE(SUM(b2.water_amount_collected), 0)
+                            FROM bookings b2
+                            WHERE b2.slot_id = ? AND b2.booking_status = 'approved'
+                        ''', (slot_id,))
+                        already_approved = cursor.fetchone()[0] or 0
+                        remaining = (capacity_per_hour or 0) - (already_approved or 0)
+                        if (requested_liters or 0) > remaining:
+                            print(f"Cannot approve: requested {requested_liters}L exceeds remaining {remaining}L for this slot.")
+                            conn.close()
+                            input("Press Enter to continue...")
+                            return
+
                 cursor.execute('''
                     UPDATE bookings 
                     SET booking_status = ?, approval_date = ?
                     WHERE booking_id = ?
                 ''', (new_status, now_local().isoformat(' '), booking_id))
-                
+
                 # Update slot bookings count if approved
                 if action == 'approve':
                     cursor.execute('''
